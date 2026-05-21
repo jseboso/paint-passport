@@ -153,6 +153,7 @@ static void writeBMPHeader(File& f, uint16_t w, uint16_t h) {
 // ─────────────────────────────────────────────
 bool savePainting() {
   if (!_sdReady) return false;
+  if (paintingCount >= MAX_PAINTINGS) return false;  // gallery full
 
   uint8_t idx = paintingCount;
   char fullPath[24], thumbPath[28];
@@ -232,7 +233,37 @@ void loadPainting(uint8_t index) {
     display.pushImage(0, row, CANVAS_W, 1, buf);
   }
   f.close();
+
+  // loaded image becomes the new undo baseline: no strokes on top of it
+  nextStrokeIndex = 0;
   strokeCount = 0;
+  snprintf(loadedBaselinePath, sizeof(loadedBaselinePath), "%s", paintingNames[index]);
+}
+
+// Same BMP layout as loadPainting(), but writes into a sprite instead of the
+// live display. Used by canvas.cpp to rebuild the undo baseline without a
+// visible flash on the screen.
+bool loadBMPToSprite(const char* path, LGFX_Sprite& sprite) {
+  if (!_sdReady) return false;
+
+  File f = SD.open(path);
+  if (!f) return false;
+
+  f.seek(54);
+  uint16_t buf[CANVAS_W];
+  for (int16_t row = CANVAS_H - 1; row >= 0; row--) {
+    for (uint16_t col = 0; col < CANVAS_W; col++) {
+      uint8_t b = f.read();
+      uint8_t g = f.read();
+      uint8_t r = f.read();
+      buf[col] = display.color565(r, g, b);
+    }
+    uint16_t pad = (4 - (CANVAS_W * 3) % 4) % 4;
+    for (uint8_t p = 0; p < pad; p++) f.read();
+    sprite.pushImage(0, row, CANVAS_W, 1, buf);
+  }
+  f.close();
+  return true;
 }
 
 // ─────────────────────────────────────────────

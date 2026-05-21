@@ -3,8 +3,8 @@
 #include <SD.h>
 #include <SPI.h>
 
-// Defined in paint_app.ino
-void drawCloseButton();
+// Defined in esp32_client.ino
+void drawCloseButton(uint16_t x, uint16_t y);
 void drawPanelBase(const char* title);
 void closePanel();
 
@@ -16,6 +16,9 @@ void  scanPaintings();
 void  drawMediaPanel();
 void  handleMediaTouch(int16_t x, int16_t y);
 void  handleMediaRelease(int16_t x, int16_t y);
+
+// reads a saved-painting BMP straight into a sprite
+bool  loadBMPToSprite(const char* path, LGFX_Sprite& sprite);
 
 extern uint8_t  paintingCount;
 extern int16_t  galleryScrollX;

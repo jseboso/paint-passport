@@ -13,9 +13,12 @@ struct Stroke {
   uint8_t  size;
 };
 
-extern Stroke  strokeBuf[MAX_STROKES];
-extern uint8_t strokeCount;
-extern uint8_t activeStroke;
+extern Stroke   strokeBuf[MAX_STROKES];
+extern uint32_t nextStrokeIndex;  // write cursor, uncapped; slot = nextStrokeIndex % MAX_STROKES
+extern uint8_t  strokeCount;      // strokes retained for undo, <= MAX_STROKES
+extern uint8_t  activeStroke;
+
+extern char loadedBaselinePath[24];  // loaded painting's path, "" if none; undo baseline once strokeCount hits 0
 
 // PSRAM sprite used for undo replay
 extern LGFX_Sprite undoSprite;

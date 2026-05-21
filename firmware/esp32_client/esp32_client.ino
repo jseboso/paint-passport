@@ -2,6 +2,8 @@
 #include "config.h"
 #include "canvas.h"
 #include "media.h"
+#include "keyboard.h"
+#include "wifi_setup.h"
 
 // ─────────────────────────────────────────────
 //  Display instance
@@ -12,6 +14,7 @@ LGFX display;
 //  Shared state
 // ─────────────────────────────────────────────
 Panel    activePanel  = PANEL_NONE;
+AppMode  appMode       = MODE_PAINT;
 uint32_t currentColor = 0;
 uint8_t  brushSize    = 5;
 float    cpHue        = 0.0f;
@@ -34,12 +37,13 @@ static uint16_t lastSvCurY   = 0;
 static uint16_t lastThumbX   = 0;
 static int16_t  mediaLastX   = -1;
 static int16_t  mediaLastY   = -1;
+bool            panelArmed   = true;  // not static — wifi_setup.cpp clears it too, see config.h
 
 // ─────────────────────────────────────────────
 //  Forward declarations
 // ─────────────────────────────────────────────
 void drawPanelBase(const char* title);
-void drawCloseButton();
+void drawCloseButton(uint16_t x, uint16_t y);
 void drawToolbar();
 void drawColorPanel();
 void drawSizePanel();
@@ -91,29 +95,28 @@ void drawPanelBase(const char* title) {
   display.setCursor(CP_PAD, TOOLBAR_Y + 9);
   display.print(title);
   display.drawFastHLine(0, TOOLBAR_Y + PANEL_TITLE_H, SCREEN_W, COL_MIDGREY);
-  drawCloseButton();
+  drawCloseButton(CLOSE_BTN_X, CLOSE_BTN_Y);
 }
 
 // ─────────────────────────────────────────────
-//  Close button
+//  Close button - also used by wifi_setup.cpp at a different position
 // ─────────────────────────────────────────────
-void drawCloseButton() {
+void drawCloseButton(uint16_t x, uint16_t y) {
   uint32_t red = rgb(200, 40, 40);
-  display.fillRoundRect(CLOSE_BTN_X, CLOSE_BTN_Y,
-                        CLOSE_BTN_SIZE, CLOSE_BTN_SIZE, 8, red);
+  display.fillRoundRect(x, y, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE, 8, red);
   uint16_t pad = 12;
-  display.drawLine(CLOSE_BTN_X + pad, CLOSE_BTN_Y + pad,
-                   CLOSE_BTN_X + CLOSE_BTN_SIZE - pad,
-                   CLOSE_BTN_Y + CLOSE_BTN_SIZE - pad, COL_WHITE);
-  display.drawLine(CLOSE_BTN_X + CLOSE_BTN_SIZE - pad, CLOSE_BTN_Y + pad,
-                   CLOSE_BTN_X + pad,
-                   CLOSE_BTN_Y + CLOSE_BTN_SIZE - pad, COL_WHITE);
-  display.drawLine(CLOSE_BTN_X + pad + 1, CLOSE_BTN_Y + pad,
-                   CLOSE_BTN_X + CLOSE_BTN_SIZE - pad + 1,
-                   CLOSE_BTN_Y + CLOSE_BTN_SIZE - pad, COL_WHITE);
-  display.drawLine(CLOSE_BTN_X + CLOSE_BTN_SIZE - pad + 1, CLOSE_BTN_Y + pad,
-                   CLOSE_BTN_X + pad + 1,
-                   CLOSE_BTN_Y + CLOSE_BTN_SIZE - pad, COL_WHITE);
+  display.drawLine(x + pad, y + pad,
+                   x + CLOSE_BTN_SIZE - pad,
+                   y + CLOSE_BTN_SIZE - pad, COL_WHITE);
+  display.drawLine(x + CLOSE_BTN_SIZE - pad, y + pad,
+                   x + pad,
+                   y + CLOSE_BTN_SIZE - pad, COL_WHITE);
+  display.drawLine(x + pad + 1, y + pad,
+                   x + CLOSE_BTN_SIZE - pad + 1,
+                   y + CLOSE_BTN_SIZE - pad, COL_WHITE);
+  display.drawLine(x + CLOSE_BTN_SIZE - pad + 1, y + pad,
+                   x + pad + 1,
+                   y + CLOSE_BTN_SIZE - pad, COL_WHITE);
 }
 
 // ─────────────────────────────────────────────
@@ -259,11 +262,24 @@ void drawSettingsPanel() {
   drawPanelBase("Settings");
 
   uint32_t clrBg = rgb(180, 40, 40);
-  display.fillRoundRect(PANEL_CONTENT_X, PANEL_CONTENT_Y + 10, 200, 50, 6, clrBg);
+  display.fillRoundRect(PANEL_CONTENT_X, PANEL_CONTENT_Y + 10, 180, 50, 6, clrBg);
   display.setTextColor(COL_WHITE, clrBg);
   display.setTextSize(2);
   display.setCursor(PANEL_CONTENT_X + 10, PANEL_CONTENT_Y + 27);
   display.print("Clear Canvas");
+
+  uint16_t wifiX = PANEL_CONTENT_X + 200;
+  display.fillRoundRect(wifiX, PANEL_CONTENT_Y + 10, 180, 50, 6, COL_BTN_ACTIVE);
+  display.setTextColor(COL_WHITE, COL_BTN_ACTIVE);
+  display.setCursor(wifiX + 10, PANEL_CONTENT_Y + 27);
+  display.print("Wi-Fi Setup");
+
+  char status[64];
+  wifiStatusLine(status, sizeof(status));
+  display.setTextColor(COL_MIDGREY, COL_DARKGREY);
+  display.setTextSize(1);
+  display.setCursor(PANEL_CONTENT_X, PANEL_CONTENT_Y + 68);
+  display.print(status);
 }
 
 // ─────────────────────────────────────────────
@@ -279,6 +295,7 @@ void openPanel(Panel p) {
   mediaChromeDrawn = false;
   mediaLastX = -1;
   mediaLastY = -1;
+  panelArmed = false;  // needs a fresh press before the panel reacts to touch
   drawToolbar();
   switch (activePanel) {
     case PANEL_COLOR:    drawColorPanel();    break;
@@ -296,11 +313,18 @@ void handleTouch() {
   lgfx::touch_point_t tp;
   bool isTouching = display.getTouch(&tp, 1) > 0;
 
+  // WiFi setup owns the whole screen and its own touch debouncing
+  if (appMode == MODE_WIFI) {
+    handleWifiTouch(isTouching, tp.x, tp.y);
+    return;
+  }
+
   // ── Finger lifted ────────────────────────────
   if (!isTouching) {
     if (drawing) {
       drawing = false;
       if (strokeBuf[activeStroke].count > 0) {
+        nextStrokeIndex++;
         strokeCount = (uint8_t)min((int)strokeCount + 1, (int)MAX_STROKES);
       }
     }
@@ -311,6 +335,7 @@ void handleTouch() {
     }
     lastX = lastY = -1;
     wasTouching = false;
+    panelArmed = true;
     return;
   }
 
@@ -329,7 +354,7 @@ void handleTouch() {
   }
 
   // ── Continuous: color picker drag ────────────
-  if (activePanel == PANEL_COLOR && y >= TOOLBAR_Y) {
+  if (activePanel == PANEL_COLOR && panelArmed && y >= TOOLBAR_Y) {
     bool hueChanged = false;
     bool svChanged  = false;
 
@@ -383,7 +408,7 @@ void handleTouch() {
   }
 
   // ── Continuous: size slider drag ─────────────
-  if (activePanel == PANEL_SIZE && y >= TOOLBAR_Y) {
+  if (activePanel == PANEL_SIZE && panelArmed && y >= TOOLBAR_Y) {
     uint8_t newSize = (uint8_t)map(
       constrain(x - SP_TRACK_X1, 0, (int)SP_TRACK_W),
       0, SP_TRACK_W, BRUSH_MIN, BRUSH_MAX
@@ -412,7 +437,7 @@ void handleTouch() {
   }
 
   // ── Continuous: media panel drag ─────────────
-  if (activePanel == PANEL_MEDIA && y >= TOOLBAR_Y) {
+  if (activePanel == PANEL_MEDIA && panelArmed && y >= TOOLBAR_Y) {
     mediaLastX = x;
     mediaLastY = y;
     handleMediaTouch(x, y);
@@ -425,10 +450,13 @@ void handleTouch() {
 
     // Settings panel actions
     if (activePanel == PANEL_SETTINGS && y >= TOOLBAR_Y) {
-      if (x >= PANEL_CONTENT_X && x <= PANEL_CONTENT_X + 200 &&
+      if (x >= PANEL_CONTENT_X && x <= PANEL_CONTENT_X + 180 &&
           y >= PANEL_CONTENT_Y + 10 && y <= PANEL_CONTENT_Y + 60) {
         clearCanvas();
         drawSettingsPanel();
+      } else if (x >= PANEL_CONTENT_X + 200 && x <= PANEL_CONTENT_X + 200 + 180 &&
+                 y >= PANEL_CONTENT_Y + 10 && y <= PANEL_CONTENT_Y + 60) {
+        openWifiScreen();
       }
       return;
     }
@@ -451,7 +479,7 @@ void handleTouch() {
   if (y < TOOLBAR_Y) {
     if (!drawing) {
       drawing      = true;
-      activeStroke = strokeCount % MAX_STROKES;
+      activeStroke = (uint8_t)(nextStrokeIndex % MAX_STROKES);
       strokeBuf[activeStroke].count = 0;
       strokeBuf[activeStroke].color = currentColor;
       strokeBuf[activeStroke].size  = brushSize;
@@ -495,10 +523,12 @@ void setup() {
   initCanvas();
   drawCanvas();
   drawToolbar();
+  wifiInit();
   Serial0.println("Ready.");
 }
 
 void loop() {
   handleTouch();
+  wifiTick();
   delay(8);
 }

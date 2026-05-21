@@ -88,13 +88,20 @@ static const uint8_t SD_MISO = 13;
 // ─────────────────────────────────────────────
 enum Panel { PANEL_NONE, PANEL_COLOR, PANEL_SIZE, PANEL_MEDIA, PANEL_SETTINGS };
 
+// MODE_WIFI takes over entire display
+enum AppMode { MODE_PAINT, MODE_WIFI };
+
 // ─────────────────────────────────────────────
 //  Shared state
 // ─────────────────────────────────────────────
 extern Panel    activePanel;
+extern AppMode  appMode;
 extern uint32_t currentColor;
 extern uint8_t  brushSize;
 extern float    cpHue, cpSat, cpVal;
+
+// true once a touch may act on the active panel/WiFi screen
+extern bool     panelArmed;
 
 extern uint32_t COL_WHITE, COL_BLACK, COL_DARKGREY;
 extern uint32_t COL_MIDGREY, COL_HIGHLIGHT;
