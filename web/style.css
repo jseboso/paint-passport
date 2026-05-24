@@ -1,0 +1,16 @@
+/* Small hand-finishing touches Tailwind's utility classes don't cover on their
+   own. Everything structural/color-wise lives in index.html as Tailwind
+   classes - this file stays intentionally tiny. */
+
+body {
+  background-image: radial-gradient(circle at 1px 1px, rgba(27, 46, 31, 0.06) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+
+::selection {
+  background: rgba(44, 74, 48, 0.18);
+}
+
+img {
+  transition: opacity 0.2s ease;
+}
