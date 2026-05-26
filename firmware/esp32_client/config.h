@@ -22,15 +22,15 @@ static const uint16_t CANVAS_H    = TOOLBAR_Y;
 static const uint8_t  NUM_BUTTONS = 5;
 static const uint16_t BTN_W       = SCREEN_W / NUM_BUTTONS; // 96
 
-// Close button — always bottom-right of panel
-static const uint16_t CLOSE_BTN_SIZE = 50;
-static const uint16_t CLOSE_BTN_X    = SCREEN_W - CLOSE_BTN_SIZE - 8;
-static const uint16_t CLOSE_BTN_Y    = TOOLBAR_Y + TOOLBAR_H - CLOSE_BTN_SIZE - 8;
-
 // Panel chrome
 static const uint16_t PANEL_TITLE_H   = 36;
 static const uint16_t PANEL_CONTENT_X = 12;
 static const uint16_t PANEL_CONTENT_Y = TOOLBAR_Y + PANEL_TITLE_H + 4;
+
+static const uint16_t CLOSE_BTN_SIZE = 28;
+static const uint16_t CLOSE_BTN_X    = SCREEN_W - CLOSE_BTN_SIZE - 8;
+static const uint16_t CLOSE_BTN_Y    = TOOLBAR_Y + (PANEL_TITLE_H - CLOSE_BTN_SIZE) / 2;
+
 static const uint16_t PANEL_CONTENT_W = CLOSE_BTN_X - 12 - 8;
 static const uint16_t PANEL_CONTENT_H = TOOLBAR_H - PANEL_TITLE_H - 16;
 
@@ -73,6 +73,17 @@ static const uint16_t THUMB_PAD     = 8;
 static const uint16_t THUMB_Y       = PANEL_CONTENT_Y;
 static const uint8_t  MAX_PAINTINGS = 20;
 
+static const uint16_t UPLOAD_ICON_SIZE = 34;
+
+// Created/Received view tabs, in the title strip between the "Media" label
+// and the SAVE button (x: ~12-72 for the label, ~346-434 for SAVE).
+static const uint16_t MEDIA_TAB_Y    = TOOLBAR_Y + 8;
+static const uint16_t MEDIA_TAB_H    = 28;
+static const uint16_t MEDIA_TAB_W    = 112;
+static const uint16_t MEDIA_TAB_GAP  = 6;
+static const uint16_t MEDIA_TAB1_X   = 80;
+static const uint16_t MEDIA_TAB2_X   = MEDIA_TAB1_X + MEDIA_TAB_W + MEDIA_TAB_GAP;
+
 // Brush
 static const uint8_t BRUSH_MIN = 1;
 static const uint8_t BRUSH_MAX = 40;
@@ -102,6 +113,10 @@ extern float    cpHue, cpSat, cpVal;
 
 // true once a touch may act on the active panel/WiFi screen
 extern bool     panelArmed;
+
+// true while a stroke is actively being drawn on the canvas - cloud.cpp uses
+// this to avoid kicking off a multi-second inbox download mid-stroke.
+extern bool     drawing;
 
 extern uint32_t COL_WHITE, COL_BLACK, COL_DARKGREY;
 extern uint32_t COL_MIDGREY, COL_HIGHLIGHT;

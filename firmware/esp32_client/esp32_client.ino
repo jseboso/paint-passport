@@ -4,6 +4,7 @@
 #include "media.h"
 #include "keyboard.h"
 #include "wifi_setup.h"
+#include "cloud.h"
 
 // ─────────────────────────────────────────────
 //  Display instance
@@ -31,7 +32,7 @@ uint32_t COL_TOOLBAR_BG, COL_BTN_ACTIVE;
 static bool     wasTouching  = false;
 static int16_t  lastX        = -1;
 static int16_t  lastY        = -1;
-static bool     drawing      = false;
+bool            drawing      = false;  // not static - cloud.cpp reads this via config.h
 static uint16_t lastSvCurX   = 0;
 static uint16_t lastSvCurY   = 0;
 static uint16_t lastThumbX   = 0;
@@ -94,29 +95,28 @@ void drawPanelBase(const char* title) {
   display.setTextSize(2);
   display.setCursor(CP_PAD, TOOLBAR_Y + 9);
   display.print(title);
-  display.drawFastHLine(0, TOOLBAR_Y + PANEL_TITLE_H, SCREEN_W, COL_MIDGREY);
+  // Accent-colored divider instead of plain grey - ties the panel visually
+  // back to the highlighted toolbar button that opened it.
+  display.drawFastHLine(0, TOOLBAR_Y + PANEL_TITLE_H, SCREEN_W, COL_BTN_ACTIVE);
   drawCloseButton(CLOSE_BTN_X, CLOSE_BTN_Y);
 }
 
 // ─────────────────────────────────────────────
-//  Close button - also used by wifi_setup.cpp at a different position
+//  Close button - a small circular icon button. (x,y) is its top-left
+//  bounding-box corner (touch hit-testing still uses that square box).
+//  Also used by wifi_setup.cpp at a different position.
 // ─────────────────────────────────────────────
 void drawCloseButton(uint16_t x, uint16_t y) {
+  uint16_t r  = CLOSE_BTN_SIZE / 2;
+  uint16_t cx = x + r;
+  uint16_t cy = y + r;
   uint32_t red = rgb(200, 40, 40);
-  display.fillRoundRect(x, y, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE, 8, red);
-  uint16_t pad = 12;
-  display.drawLine(x + pad, y + pad,
-                   x + CLOSE_BTN_SIZE - pad,
-                   y + CLOSE_BTN_SIZE - pad, COL_WHITE);
-  display.drawLine(x + CLOSE_BTN_SIZE - pad, y + pad,
-                   x + pad,
-                   y + CLOSE_BTN_SIZE - pad, COL_WHITE);
-  display.drawLine(x + pad + 1, y + pad,
-                   x + CLOSE_BTN_SIZE - pad + 1,
-                   y + CLOSE_BTN_SIZE - pad, COL_WHITE);
-  display.drawLine(x + CLOSE_BTN_SIZE - pad + 1, y + pad,
-                   x + pad + 1,
-                   y + CLOSE_BTN_SIZE - pad, COL_WHITE);
+  display.fillCircle(cx, cy, r, red);
+  uint16_t pad = r / 2;
+  display.drawLine(cx - pad, cy - pad, cx + pad, cy + pad, COL_WHITE);
+  display.drawLine(cx + pad, cy - pad, cx - pad, cy + pad, COL_WHITE);
+  display.drawLine(cx - pad + 1, cy - pad, cx + pad + 1, cy + pad, COL_WHITE);
+  display.drawLine(cx + pad + 1, cy - pad, cx - pad + 1, cy + pad, COL_WHITE);
 }
 
 // ─────────────────────────────────────────────
@@ -420,6 +420,14 @@ void handleTouch() {
     return;
   }
 
+  // ── Single-fire: media view tabs (Created/Received) ──
+  if (!wasTouching && activePanel == PANEL_MEDIA && y >= TOOLBAR_Y) {
+    if (handleMediaTabTouch(x, y)) {
+      wasTouching = true;
+      return;
+    }
+  }
+
   // ── Single-fire: media save button ───────────
   if (!wasTouching && activePanel == PANEL_MEDIA && y >= TOOLBAR_Y) {
     uint16_t saveBtnX = PANEL_CONTENT_X + PANEL_CONTENT_W - 90;
@@ -429,8 +437,27 @@ void handleTouch() {
       wasTouching = true;
       if (sdAvailable()) {
         savePainting();
+        uint8_t justSaved = paintingCount - 1;
         mediaChromeDrawn = false;
         drawMediaPanel();
+
+        // Best-effort cloud upload of the painting we just saved locally.
+        // Blocking, same as the SD write itself - give some inline feedback
+        // in the same spot drawMediaPanel() draws the SAVE button rather
+        // than freezing with no explanation.
+        if (wifiIsConnected()) {
+          display.fillRoundRect(saveBtnX, saveBtnY, 88, 28, 6, rgb(40, 140, 40));
+          display.setTextColor(COL_WHITE, rgb(40, 140, 40));
+          display.setTextSize(2);
+          display.setCursor(saveBtnX + 6, saveBtnY + 7);
+          display.print("...");
+
+          bool uploaded = uploadPaintingAtIndex(justSaved);
+          Serial0.println(uploaded ? "Cloud upload: ok" : "Cloud upload: failed");
+
+          mediaChromeDrawn = false;
+          drawMediaPanel();
+        }
       }
       return;
     }
@@ -524,11 +551,13 @@ void setup() {
   drawCanvas();
   drawToolbar();
   wifiInit();
+  cloudInit();
   Serial0.println("Ready.");
 }
 
 void loop() {
   handleTouch();
   wifiTick();
+  cloudTick();
   delay(8);
 }
